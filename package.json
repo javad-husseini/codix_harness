@@ -1,0 +1,28 @@
+{
+  "name": "codix",
+  "version": "0.1.0",
+  "private": true,
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "build": "next build",
+    "desktop": "electron .",
+    "check:desktop": "node --check desktop/main.cjs && node --check desktop/preload.cjs",
+    "test:backend": "python3 -m unittest discover -s tests -v",
+    "test:desktop": "xvfb-run -a electron --disable-setuid-sandbox tests/desktop-smoke.cjs",
+    "test:approvals": "xvfb-run -a electron --disable-setuid-sandbox tests/approval-smoke.cjs",
+    "test:task": "xvfb-run -a electron --disable-setuid-sandbox tests/task-smoke.cjs"
+  },
+  "dependencies": {
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "tailwind-merge": "3.3.1"
+  },
+  "devDependencies": {
+    "electron": "44.9.1",
+    "tailwindcss": "4.3.3",
+    "@tailwindcss/postcss": "4.3.3"
+  }
+}

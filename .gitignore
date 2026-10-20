@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.dpapi
+.secrets/
+dist/
+runtime/
+.pytest_cache/
+.verification/

@@ -1,0 +1,11 @@
+.git
+node_modules
+.next
+out
+runtime
+dist
+__pycache__
+.env
+.env.*
+*.dpapi
+.secrets

@@ -126,17 +126,19 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(state['status'], 'incomplete')
         self.assertTrue(state['report']['skipped_checks'])
 
-    def test_failed_command_stops_without_correction_or_extra_model_call(self):
+    def test_failed_command_requests_correction_and_does_not_retry_transport(self):
         self.gateway.command_result.code = 1
         manager, run, provider = self.start([
             ('set_plan', {'steps': ['Check']}),
             ('run_command', {'command': 'python3 -m unittest', 'cwd': '.'}),
+            ('finish_step', {'summary': 'Cannot fix', 'acceptance_met': False}),
         ])
         state = wait(run)
         run.decide(state['approval']['decision_id'], True)
         state = wait(run)
-        self.assertEqual(state['status'], 'failed')
-        self.assertEqual(state['model_calls'], 2)
+        self.assertEqual(state['status'], 'incomplete')
+        self.assertEqual(state['correction_cycles'], 1)
+        self.assertEqual(state['model_calls'], 3)
         self.assertEqual(len(self.gateway.commands), 1)
 
     def test_revised_plan_pauses_and_new_task_does_not_inherit_plan(self):

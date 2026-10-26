@@ -12,6 +12,11 @@ AVALAI_URL = 'https://api.avalai.ir/v1'
 OPENAI_URL = 'https://api.openai.com/v1'
 
 
+def compact_json(value):
+    # Count and send UTF-8 JSON, without charging Persian text for ASCII escapes.
+    return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+
+
 class BudgetExceeded(RuntimeError):
     pass
 
@@ -60,27 +65,43 @@ class Budget:
     def __init__(self):
         self.used = 0
         self.calls = 0
+        self.reported = 0
+        self.next_required = None
 
     def reserve(self, input_tokens, output_tokens):
-        if type(input_tokens) is not int or input_tokens < 0:
+        if type(input_tokens) is not int or input_tokens < 0 or type(output_tokens) is not int or output_tokens < 0:
             raise RuntimeError('Reliable input token count unavailable; no model request sent.')
         amount = input_tokens + output_tokens
+        self.next_required = amount
         if self.used + amount > self.LIMIT:
-            raise BudgetExceeded('Task token budget cannot accommodate another model call.')
+            raise BudgetExceeded(f'Task budget cannot fit the next model call: {self.LIMIT - self.used} tokens remaining; '
+                                 f'{amount} required ({input_tokens} input estimate/count + {output_tokens} output reserve). '
+                                 'Unreported usage remains conservatively reserved; no request was sent.')
         self.used += amount
         self.calls += 1
+        self.next_required = None
         return amount
 
     def settle(self, reserved, usage):
         if not isinstance(usage, dict):
             return  # Retain the entire reserved upper bound when usage is missing.
-        incoming, outgoing = usage.get('input_tokens'), usage.get('output_tokens')
-        if type(incoming) is not int or type(outgoing) is not int or incoming < 0 or outgoing < 0:
+        if 'input_tokens' in usage or 'output_tokens' in usage:
+            counters = (usage.get('input_tokens'), usage.get('output_tokens'))
+        elif 'prompt_tokens' in usage or 'completion_tokens' in usage:
+            counters = (usage.get('prompt_tokens'), usage.get('completion_tokens'))
+        elif 'total_tokens' in usage:
+            counters = (usage['total_tokens'],)
+        else:
             return
-        actual = incoming + outgoing
+        if any(type(value) is not int or value < 0 for value in counters):
+            return  # Malformed/partial usage never releases a reservation.
+        actual = sum(counters)
+        if 'total_tokens' in usage and (type(usage['total_tokens']) is not int or usage['total_tokens'] != actual):
+            return
         if actual > reserved:
             raise ProviderError('budget_usage')
         self.used -= reserved - actual
+        self.reported += actual
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -96,7 +117,7 @@ class ResponsesProvider:
         if self.base_url not in (AVALAI_URL, OPENAI_URL):
             raise RuntimeError('API endpoint must be the approved HTTPS AvalAI or OpenAI base URL.')
         if not self.key or not re.fullmatch(r'[A-Za-z0-9._:/-]{1,100}', self.model):
-            raise RuntimeError('Save the private AvalAI Windows key (or configure AVALAI_API_KEY/OPENAI_API_KEY) and set CODIX_MODEL before starting a task. Never paste the key into chat.')
+            raise RuntimeError('Fill AVALAI_API_KEY (or OPENAI_API_KEY) and CODIX_MODEL in .env, then restart Codix. Never paste the key into chat.')
         # Frozen Windows Python may lack an up-to-date system issuer chain.
         # Keep Windows trust, hostname verification and TLS validation, adding public roots.
         context = ssl.create_default_context()
@@ -109,7 +130,7 @@ class ResponsesProvider:
 
     def _post(self, endpoint, payload):
         request = urllib.request.Request(self.base_url + '/' + endpoint,
-                                         data=json.dumps(payload).encode(), method='POST',
+                                         data=compact_json(payload).encode('utf-8'), method='POST',
                                          headers={'Authorization': 'Bearer ' + self.key, 'Content-Type': 'application/json'})
         try:
             with self.opener.open(request, timeout=90) as response:
@@ -146,7 +167,7 @@ class ResponsesProvider:
     def call(self, instructions, context, tools, budget, forced=None):
         choice = {'type': 'function', 'name': forced} if forced else 'required'
         payload = {'model': self.model, 'instructions': instructions,
-                   'input': [{'role': 'user', 'content': json.dumps(context, ensure_ascii=False)}],
+                   'input': [{'role': 'user', 'content': compact_json(context)}],
                    'tools': tools, 'tool_choice': choice}
         # Exact same input/instructions/schema/choice used for count and generation.
         if self.base_url == AVALAI_URL:
@@ -154,7 +175,8 @@ class ResponsesProvider:
             # for OpenAI model routes are supported by this conservative byte upper estimate.
             if not re.match(r'^(gpt-|o[134](?:-|$))', self.model):
                 raise RuntimeError('AvalAI conservative token budgeting currently requires an OpenAI gpt-/o1/o3/o4 model route.')
-            input_tokens = len(json.dumps(payload).encode('utf-8')) + 4096
+            # Retain the existing 4096-token protocol allowance; no chars/4 guess.
+            input_tokens = len(compact_json(payload).encode('utf-8')) + 4096
         else:
             count = self._post('responses/input_tokens', payload)
             input_tokens = count.get('input_tokens')

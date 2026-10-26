@@ -1,5 +1,17 @@
 # Windows portable build
 
+Current credential setup: fill `.env` next to `Codix.exe`, then restart. The
+build creates an empty template there and preserves existing local settings.
+The repository `.env` is never copied into the artifact. The previous DPAPI
+setup described in historical build notes below has been retired. See
+[current setup](git-and-provider.md) and [verification](env-configuration.md).
+
+Current release: `dist/Codix-MVP-win32-x64`, built with `--mvp`. Phase 4 Skills and
+correction and the phase 5 local/native acceptance checks are now implemented;
+see `phase-4.md` and `phase-5.md`. The historical phase 3 build results below
+remain a record of the initial artifact. The latest native AvalAI Hello World
+acceptance passed in four calls/3,353 reported tokens; see [current results](token-budget-fix.md).
+
 The user approved building with Wine inside Linux Docker on 2026-10-20 because
 this Windows Home machine cannot run Windows containers. This changes the phase
 0 build route, not the runtime project-container isolation policy. No host

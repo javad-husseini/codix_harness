@@ -8,6 +8,7 @@ const { spawn } = require('node:child_process');
 const { randomBytes, createHash } = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const { loadConfig } = require('./config.cjs');
 const { pathToFileURL } = require('node:url');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'codix', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
@@ -43,9 +44,9 @@ async function startBackend() {
     ? path.join(process.resourcesPath, 'backend', 'codix-backend.exe')
     : (process.platform === 'win32' ? path.join(ROOT, 'runtime', 'backend', 'codix-backend.exe') : 'python3');
   const args = !app.isPackaged && process.platform !== 'win32' ? ['-m', 'backend.server'] : [];
-  const env = { ...process.env, CODIX_API_PORT: rawPort };
-  if (providerKey) env.OPENAI_API_KEY = providerKey;
-  if (avalaiKey) env.AVALAI_API_KEY = avalaiKey;
+  const config = loadConfig(path.join(app.isPackaged ? path.dirname(process.execPath) : ROOT, '.env'));
+  const env = { ...process.env, OPENAI_API_KEY: providerKey || '', AVALAI_API_KEY: avalaiKey || '',
+    ...config, CODIX_API_PORT: rawPort };
   // Backend reads the provider key from its inherited environment; never pass it to renderer/project containers.
   backend = spawn(executable, args, { cwd: ROOT, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   await new Promise((resolve, reject) => {
@@ -214,6 +215,6 @@ app.on('before-quit', event => {
   } else quitting = true;
 });
 main().catch(() => {
-  dialog.showErrorBox('Codix startup failed', 'Backend runtime missing, API port unavailable, or UI build missing. Check the setup documentation.');
+  dialog.showErrorBox('Codix startup failed', 'Check .env format, backend runtime, API port and UI build. See the setup documentation.');
   app.quit();
 });

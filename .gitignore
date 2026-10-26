@@ -3,6 +3,7 @@ node_modules/
 out/
 __pycache__/
 *.pyc
+# Local credentials; only the empty example is safe to commit.
 .env
 .env.*
 !.env.example

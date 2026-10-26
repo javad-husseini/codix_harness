@@ -93,9 +93,18 @@ export default function Workspace() {
     {task && <section className="space-y-4 rounded-xl border border-border p-6" aria-label="وضعیت وظیفه">
       <div className="flex flex-wrap justify-between gap-3">
         <h2 className="text-lg">{{ running: 'در حال اجرا', awaiting_approval: 'در انتظار تأیید', completed: 'انجام شد',
-          incomplete: 'اعتبارسنجی ناقص', stopped: 'متوقف شد', failed: 'بررسی ناموفق', budget_exhausted: 'سقف مصرف توکن رسید' }[task.status]}</h2>
+          incomplete: 'اعتبارسنجی ناقص', stopped: 'متوقف شد', failed: 'بررسی ناموفق', budget_exhausted: 'بودجه برای درخواست بعدی کافی نیست' }[task.status]}</h2>
         <span className="text-sm text-neutral-400">توکن: {task.tokens_used ?? 0} / {task.token_limit ?? 25000}</span>
+        <span className="text-sm text-neutral-400">چرخهٔ اصلاح: {task.correction_cycles ?? 0} / {task.correction_limit ?? 3}</span>
       </div>
+      {task.tokens_reported != null && <p className="text-sm text-neutral-400">
+        مصرف گزارش‌شده: {task.tokens_reported}؛ رزرو بدون گزارش مصرف: {task.tokens_reserved ?? 0}
+      </p>}
+      {task.next_call_tokens != null && <p className="text-sm text-amber-300">
+        درخواست بعدی به {task.next_call_tokens} توکن بودجه نیاز داشت؛ باقی‌مانده: {(task.token_limit ?? 25000) - (task.tokens_used ?? 0)}.
+      </p>}
+      {task.skills?.length > 0 && <p className="text-sm">Skills: {task.skills.map(skill => skill.name).join('، ')}</p>}
+      {task.skill_warnings?.map((warning, index) => <p key={index} className="text-sm text-amber-300">{warning}</p>)}
       <ol className="list-inside list-decimal space-y-2 text-sm leading-7">{task.plan?.map((step, index) =>
         <li key={index}>{step.title} — {{ pending: 'در صف', running: 'در حال انجام', completed: 'انجام شد', incomplete: 'ناقص' }[step.status]}</li>)}</ol>
       {task.events?.length > 0 && <details><summary className="cursor-pointer text-sm">پیشرفت و خروجی ابزارها</summary>

@@ -1,15 +1,13 @@
-import ctypes
 import io
 import json
 import os
 import unittest
-from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import urllib.error
 import urllib.request
 import ssl
 
-from backend.credentials import DataBlob, decrypt_windows, load_key, secret_path
+from backend.credentials import load_key
 from backend.provider import AVALAI_URL, Budget, BudgetExceeded, ResponsesProvider, ProviderError
 
 
@@ -23,35 +21,14 @@ class CredentialTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '^Invalid API credential format'):
                 load_key()
 
-    def test_fixed_store_and_no_linux_file_fallback(self):
+    def test_missing_environment_does_not_read_the_legacy_store(self):
         with patch.dict(os.environ, {'LOCALAPPDATA': '/private/user'}, clear=True):
-            self.assertEqual(str(secret_path()), '/private/user/Codix/secrets/avalai-key.dpapi')
-            with patch('backend.credentials.decrypt_windows') as decrypt:
-                self.assertEqual(load_key(), '')
-                decrypt.assert_not_called()
+            self.assertEqual(load_key(), '')
 
-    def test_dpapi_utf16_and_native_buffer_cleanup(self):
-        raw = 'fixture-private-key'.encode('utf-16-le')
-        buffer = (ctypes.c_ubyte * len(raw)).from_buffer_copy(raw)
-
-        def unprotect(source, description, entropy, reserved, prompt, flags, output):
-            self.assertEqual(flags, 1)
-            blob = ctypes.cast(output, ctypes.POINTER(DataBlob)).contents
-            blob.cbData = len(raw)
-            blob.pbData = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte))
-            return 1
-
-        free = Mock()
-        crypt = SimpleNamespace(CryptUnprotectData=Mock(side_effect=unprotect))
-        kernel = SimpleNamespace(LocalFree=free)
-        with patch.object(ctypes, 'WinDLL', create=True, side_effect=[crypt, kernel]):
-            self.assertEqual(decrypt_windows('01' * 20), 'fixture-private-key')
-        self.assertEqual(bytes(buffer), bytes(len(raw)))
-        free.assert_called_once()
-
-    def test_bad_ciphertext_has_generic_error(self):
-        with self.assertRaisesRegex(RuntimeError, '^Cannot read the private Windows credential'):
-            decrypt_windows('not-a-key')
+    def test_empty_configuration_has_actionable_error(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, 'Fill AVALAI_API_KEY.*in .env'):
+                ResponsesProvider()
 
 
 class AvalAITests(unittest.TestCase):

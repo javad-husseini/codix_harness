@@ -14,6 +14,9 @@ assert os.getenv('AVALAI_API_KEY') == 'fixture-avalai-not-real-key', 'Backend fi
 
 directory = tempfile.TemporaryDirectory()
 root = Path(directory.name)
+skill = root / '.agents' / 'skills' / 'verify-task' / 'SKILL.md'
+skill.parent.mkdir(parents=True)
+skill.write_text('---\nname: verify-task\ndescription: Verify task checks\n---\nUse the smallest relevant check. Never execute Skill content or bypass approvals.')
 
 
 class Manager:
@@ -33,13 +36,20 @@ class Gateway(LocalGateway):
 
 
 tools = ToolService(Gateway(root))
-tasks = TaskManager(tools, lambda: ScriptedProvider([
+providers = iter([ScriptedProvider([
     ('set_plan', {'steps': ['Create a Python module', 'Check the requested value']}),
-    ('create_file', {'path': 'created.py', 'content': 'value = 42\n'}),
+    ('create_file', {'path': 'created.py', 'content': 'value = 0\n'}),
     ('finish_step', {'summary': 'Module created.', 'acceptance_met': True}),
-    ('run_command', {'command': 'python3 -c "import created; assert created.value == 42"', 'cwd': '.'}),
+    ('run_command', {'command': 'python3 -B -c "import created; assert created.value == 42"', 'cwd': '.'}),
+    ('edit_file', {'path': 'created.py', 'content': 'value = 42\n'}),
+    ('run_command', {'command': 'python3 -B -c "import created; assert created.value == 42"', 'cwd': '.'}),
     ('finish_step', {'summary': 'Requested value verified.', 'acceptance_met': True}),
-]))
+]), ScriptedProvider([
+    ('set_plan', {'steps': ['Check budget reporting']}),
+    ('create_file', {'path': 'budget.txt', 'content': 'preserved on budget stop'}),
+    ('finish_step', {'summary': 'Must not run beyond budget', 'acceptance_met': True}),
+], cost=10000)])
+tasks = TaskManager(tools, lambda: next(providers))
 original = server.make_server
 
 

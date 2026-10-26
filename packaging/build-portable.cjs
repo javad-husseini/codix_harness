@@ -46,7 +46,8 @@ async function download(url, hops = 0) {
     .find(parts => parts[1]?.replace(/^\*/, '') === filename)?.[0];
   if (!expected || crypto.createHash('sha256').update(zip).digest('hex') !== expected)
     throw new Error('Electron checksum verification failed');
-  const destination = path.join(root, 'dist', process.argv.includes('--updated') ? 'Codix-win32-x64-updated' : 'Codix-win32-x64');
+  const destination = path.join(root, 'dist', process.argv.includes('--mvp') ? 'Codix-MVP-win32-x64' :
+    process.argv.includes('--updated') ? 'Codix-win32-x64-updated' : 'Codix-win32-x64');
   await fs.mkdir(destination, { recursive: true });
   const archive = '/tmp/codix-electron-win.zip';
   await fs.writeFile(archive, zip);
@@ -61,6 +62,13 @@ async function download(url, hops = 0) {
   await fs.mkdir(path.join(destination, 'docker'), { recursive: true });
   await fs.copyFile(path.join(root, 'docker', 'default.Dockerfile'), path.join(destination, 'docker', 'default.Dockerfile'));
   await fs.copyFile('/opt/wine/drive_c/Python312/LICENSE.txt', path.join(destination, 'PYTHON-LICENSE.txt'));
-  await fs.writeFile(path.join(destination, 'README.txt'), 'Run Codix.exe. Docker Desktop with the Linux engine and WSL2 are required.\r\nKeep this entire folder together. API key: %LOCALAPPDATA%\\Codix\\secrets\\avalai-key.dpapi\r\nModel: CODIX_MODEL environment variable.\r\nIf the default project image is absent, review docker/default.Dockerfile and approve/build it:\r\ndocker build -f docker/default.Dockerfile -t codix-project:node22-python312 .\r\n');
+  const template = await fs.readFile(path.join(root, '.env.example'), 'utf8');
+  const config = require('node:util').parseEnv(template);
+  if (config.AVALAI_API_KEY !== '' || config.OPENAI_API_KEY !== '') throw new Error('Example API keys must be empty.');
+  await fs.writeFile(path.join(destination, '.env.example'), template);
+  // Preserve an existing user's portable configuration; never copy the repository .env.
+  try { await fs.writeFile(path.join(destination, '.env'), template, { flag: 'wx' }); }
+  catch (error) { if (error.code !== 'EEXIST') throw error; }
+  await fs.writeFile(path.join(destination, 'README.txt'), 'Run Codix.exe. Docker Desktop with the Linux engine and WSL2 are required.\r\nKeep this entire folder together. Fill AVALAI_API_KEY in .env next to Codix.exe and restart the app.\r\nModel and endpoint are configured in the same .env. The previous DPAPI store is no longer read.\r\nDo not distribute your filled .env; distribute only the empty example.\r\nIf the default project image is absent, review docker/default.Dockerfile and approve/build it:\r\ndocker build -f docker/default.Dockerfile -t codix-project:node22-python312 .\r\n');
   console.log(`Portable folder: ${destination}`);
 })().catch(error => { console.error(error.message); process.exitCode = 1; });

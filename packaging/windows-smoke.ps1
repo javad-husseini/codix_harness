@@ -37,15 +37,36 @@ try {
     if ($catalog.tools.Count -lt 1) { throw 'Tool catalog missing' }
     $prerequisites = Invoke-RestMethod 'http://127.0.0.1:43219/prerequisites' -Method Post -Headers $headers -ContentType 'application/json' -Body '{}'
     if ($prerequisites.docker -ne 'ready') { throw 'Docker prerequisite check failed' }
-    $projectRoot = Join-Path $repoRoot '.verification\native windows project'
+    $projectRoot = Join-Path $repoRoot ('.verification\native windows project-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $projectRoot -Force | Out-Null
     $preview = Invoke-RestMethod 'http://127.0.0.1:43219/projects/preview' -Method Post -Headers $headers -ContentType 'application/json' -Body (@{ root = $projectRoot } | ConvertTo-Json)
     $project = Invoke-RestMethod 'http://127.0.0.1:43219/projects/prepare' -Method Post -Headers $headers -ContentType 'application/json' -Body (@{ ticket = $preview.ticket; approved = $false } | ConvertTo-Json)
     $containerName = $project.container
+    $again = Invoke-RestMethod 'http://127.0.0.1:43219/projects/preview' -Method Post -Headers $headers -ContentType 'application/json' -Body (@{ root = $projectRoot } | ConvertTo-Json)
+    $reused = Invoke-RestMethod 'http://127.0.0.1:43219/projects/prepare' -Method Post -Headers $headers -ContentType 'application/json' -Body (@{ ticket = $again.ticket; approved = $false } | ConvertTo-Json)
+    if ($reused.container -ne $containerName) { throw 'Persistent project container was not reused' }
     $smoke = Invoke-RestMethod 'http://127.0.0.1:43219/projects/smoke' -Method Post -Headers $headers -ContentType 'application/json' -Body (@{ project_id = $project.project_id } | ConvertTo-Json)
     if (-not $smoke.compatible -or $smoke.exit_code -ne 0) { throw 'Native Windows project mount/container smoke failed' }
     $listing = Invoke-RestMethod 'http://127.0.0.1:43219/tools/propose' -Method Post -Headers $headers -ContentType 'application/json' -Body (@{ project_id = $project.project_id; name = 'list_files'; arguments = @{ path = '.' } } | ConvertTo-Json -Depth 4)
     $null = Invoke-RestMethod 'http://127.0.0.1:43219/tools/execute' -Method Post -Headers $headers -ContentType 'application/json' -Body (@{ project_id = $project.project_id; ticket = $listing.ticket; approved = $false } | ConvertTo-Json)
+    function Invoke-Backend($endpoint, $body) {
+        Invoke-RestMethod ('http://127.0.0.1:43219' + $endpoint) -Method Post -Headers $headers -ContentType 'application/json' -Body ($body | ConvertTo-Json -Depth 6)
+    }
+    $plan = Invoke-Backend '/tools/propose' @{ project_id = $project.project_id; name = 'set_plan'; arguments = @{ steps = @('Create a disposable acceptance file', 'Verify content and approval gates') } }
+    $null = Invoke-Backend '/tools/execute' @{ project_id = $project.project_id; ticket = $plan.ticket; approved = $false }
+    $created = Invoke-Backend '/tools/propose' @{ project_id = $project.project_id; name = 'create_file'; arguments = @{ path = 'acceptance.txt'; content = 'native acceptance value' } }
+    $null = Invoke-Backend '/tools/execute' @{ project_id = $project.project_id; ticket = $created.ticket; approved = $false }
+    $protected = Invoke-Backend '/tools/propose' @{ project_id = $project.project_id; name = 'create_file'; arguments = @{ path = 'AGENTS.md'; content = 'This protected proposal must never execute.' } }
+    if (-not $protected.approval_required) { throw 'Protected write did not require approval' }
+    $deletion = Invoke-Backend '/tools/propose' @{ project_id = $project.project_id; name = 'delete_file'; arguments = @{ path = 'acceptance.txt' } }
+    if (-not $deletion.approval_required) { throw 'Deletion did not require approval' }
+    $denied = $false
+    try { $null = Invoke-Backend '/tools/execute' @{ project_id = $project.project_id; ticket = $deletion.ticket; approved = $false } }
+    catch { if ([int]$_.Exception.Response.StatusCode -eq 403) { $denied = $true } else { throw } }
+    if (-not $denied) { throw 'Rejected deletion was executed' }
+    $read = Invoke-Backend '/tools/propose' @{ project_id = $project.project_id; name = 'read_file'; arguments = @{ path = 'acceptance.txt' } }
+    $value = Invoke-Backend '/tools/execute' @{ project_id = $project.project_id; ticket = $read.ticket; approved = $false }
+    if ($value.content -ne 'native acceptance value') { throw 'Native file operation or denial preservation failed' }
     if ($LiveProvider) {
         $task = Invoke-RestMethod 'http://127.0.0.1:43219/tasks/start' -Method Post -Headers $headers -ContentType 'application/json' -Body (@{ project_id = $project.project_id; request = 'Connectivity check only. Set a one-step plan titled Check connectivity, then immediately finish_step with acceptance_met=false. Do not modify files, read files, delete files, install dependencies or run commands.' } | ConvertTo-Json)
         $deadline = [DateTime]::UtcNow.AddSeconds(110)
@@ -64,7 +85,7 @@ try {
     $process.StandardInput.Close()
     if (-not $process.WaitForExit(10000)) { throw 'Backend did not exit after parent EOF' }
     if ($process.ExitCode -ne 0) { throw 'Backend exited unsuccessfully' }
-    'PASS native packaged backend: startup, authentication, bundled workers/LangGraph, catalog, Docker/WSL, Windows project path with spaces, isolated Node/Python smoke and shutdown.'
+    'PASS native packaged backend: startup, authenticated API, bundled workers/LangGraph, Docker/WSL, spaced path, container reuse, file create/read, protected-write gate, denied delete preservation, Node/Python smoke and shutdown.'
 } finally {
     if ($process.Id -and -not $process.HasExited) { $process.Kill() }
     $process.Dispose()

@@ -14,4 +14,4 @@
 - Test the changed behavior where possible. Never report tests as passed unless they were actually run.
 - In the final report, list changed files, commands/tests and outcomes, skipped checks, and remaining limitations.
 - After implementing and testing each phase, report the reviewable changes and test outcomes, then wait for the user's explicit approval before creating that phase's commit. Do not infer approval from a request to start another phase. Push only when explicitly requested.
-- Keep provider credentials outside the repository/project mount. The Windows credential store is `%LOCALAPPDATA%/Codix/secrets/avalai-key.dpapi`, encrypted for the current Windows user; never commit, print, or send it to the model/renderer.
+- User-approved credential configuration: local Git-ignored `.env` at the repository root in development, or next to `Codix.exe` in portable mode. Commit only the empty `.env.example`; never commit, print, package or send real credentials to the model/renderer. Only the backend receives key values. The legacy DPAPI store is no longer read.

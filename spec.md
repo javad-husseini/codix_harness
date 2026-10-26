@@ -21,7 +21,7 @@ No unrelated product features are in scope.
 - Target OS: Windows.
 - Distribution: portable folder containing the executable and bundled resources; no installer.
 - Prerequisite: Docker Desktop and WSL2 must already be installed. If Docker is unavailable, explain the prerequisite and do not silently fall back to host execution.
-- API key: use the user-approved Windows-user DPAPI encrypted store outside the repository/project mount, or an explicit backend environment variable for development. Document the location/variable names; never hard-code, log, commit or forward credentials to the model/renderer/project container.
+- API key: use the user-approved local Git-ignored `.env` in the repository root for development or beside `Codix.exe` in portable mode. Electron reads allowlisted settings and passes keys only to the backend, never the renderer or project-container environment. Explicit backend environment variables remain supported. Commit/package only the empty example; never hard-code, log or commit real credentials. The previous DPAPI store is no longer read.
 
 ## 3. Approved execution graph
 `Receive task → Plan → Execute plan step → Inspect output/tests → Done?`

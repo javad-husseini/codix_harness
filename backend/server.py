@@ -77,7 +77,7 @@ def make_server(token, port, manager=None, tool_service=None, task_manager=None)
             if not self.authenticated():
                 return
             if self.path == "/health":
-                self.reply(200, {"status": "ready", "phase": 3})
+                self.reply(200, {"status": "ready", "phase": 4})
             elif self.path == '/tools/catalog':
                 self.reply(200, {'tools': TOOL_SCHEMAS})
             else:

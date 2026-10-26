@@ -1,5 +1,6 @@
 // Run inside the GUI development container: xvfb-run -a node_modules/.bin/electron tests/desktop-smoke.cjs
 const assert = require('node:assert/strict');
+require('../desktop/config.cjs').loadConfig = () => ({}); // Never read a user's .env in GUI fixtures.
 const { app, dialog } = require('electron');
 
 const deadline = setTimeout(() => { console.error('Desktop smoke timed out'); app.exit(1); }, 20000);
@@ -8,7 +9,10 @@ dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
 app.on('browser-window-created', (_event, win) => {
   win.webContents.once('did-finish-load', async () => {
     try {
-      const state = await win.webContents.executeJavaScript(`(async () => ({
+      const state = await win.webContents.executeJavaScript(`(async () => {
+        for (let i = 0; i < 100 && !document.body.textContent.includes('Backend: متصل'); i++)
+          await new Promise(resolve => setTimeout(resolve, 100));
+        return ({
         title: document.title,
         heading: document.querySelector('h1')?.textContent,
         methods: Object.keys(window.codix),
@@ -20,7 +24,7 @@ app.on('browser-window-created', (_event, win) => {
         unprepared: await window.codix.prepareProject(),
         invalidTool: await window.codix.runTool('host_shell', {}),
         unplannedTool: await window.codix.runTool('create_file', { path: 'new.txt', content: 'x' }),
-      }))()`);
+      }); })()`);
       assert.equal(state.title, 'Codix');
       assert.equal(state.heading, 'Codix');
       assert.deepEqual(state.methods.sort(), ['health', 'prerequisites', 'prepareProject', 'selectProject', 'smoke', 'setPlan', 'runTool', 'startTask', 'taskStatus'].sort());

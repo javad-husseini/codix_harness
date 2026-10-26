@@ -2,84 +2,67 @@
 
 ## Repository and phase commits
 
-The local repository uses branch `main` and origin
+The repository uses `main` and origin
 `https://github.com/javad-husseini/codix_harness.git`.
-After each phase, implement and test its approved scope, report changes and test
-results, then wait for explicit user approval before committing. Starting another
-phase does not approve a commit. Push requires a separate explicit instruction.
-Phases 0–3 already coexist in the initial working tree; do not invent historical
-phase commits. No commit or push was performed during this setup.
+Implement and test each phase, report results, then wait for explicit approval
+before committing. Starting another phase does not approve a commit. Push needs
+an explicit request.
 
-## Private Windows key
+## Local .env configuration (current)
 
-The native Windows backend reads:
-`%LOCALAPPDATA%\Codix\secrets\avalai-key.dpapi`.
-The directory was created outside the repository and Docker project mount with
-inherited access removed and access granted to the current Windows account and
-SYSTEM. Save your actual key from a Windows PowerShell window using masked input:
+The user approved replacing DPAPI with a local `.env` file. It is plain text and
+ignored by Git; `.gitignore` is not encryption. Keep the filled file private.
+Only the empty `.env.example` belongs in version control.
 
-```powershell
-$k = Read-Host 'AvalAI API key' -AsSecureString
-$k | ConvertFrom-SecureString | Set-Content -LiteralPath "$env:LOCALAPPDATA\Codix\secrets\avalai-key.dpapi" -Encoding ascii -NoNewline
-Remove-Variable k
-```
+- Development: edit `.env` at the repository root.
+- Portable Windows: edit `.env` beside `Codix.exe`, currently
+  `dist/Codix-MVP-win32-x64/.env`. The root development file is not read in this mode.
+- Fill `AVALAI_API_KEY`, save and restart Codix. For the default AvalAI endpoint,
+  leave `OPENAI_API_KEY` empty. These are alternatives, not two required keys.
+- Defaults in the template: `OPENAI_BASE_URL=https://api.avalai.ir/v1` and
+  `CODIX_MODEL=gpt-5.4-nano`. The model must be available on your account and
+  support Responses/function calling; the template is not a claim of availability.
 
-Do not paste the key into chat, project files, `.env`, command arguments or Git.
-This creates ciphertext protected by the current user's Windows DPAPI, without
-a separate encryption password. Other processes running as the same Windows user
-and administrators remain within the trust boundary; this is not protection
-against a compromised Windows account. See [Microsoft's secure-string guidance](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/convertfrom-securestring).
-The backend rejects credential-store links/reparse points, limits file size and
-clears the native decrypted buffer after copying the key. Python still holds the
-key in backend memory to authenticate requests. It is never sent to the model,
-renderer or selected project container.
+Electron reads only `AVALAI_API_KEY`, `OPENAI_API_KEY`, `OPENAI_BASE_URL` and
+`CODIX_MODEL` from that exact file, without executing shell expansions. File
+values override inherited variables, including empty values; a missing file
+retains explicit environment-based development compatibility. `CODIX_API_PORT`
+remains a process environment setting, defaulting to 43121.
 
-For explicitly configured backend development, `AVALAI_API_KEY` takes precedence
-over compatible `OPENAI_API_KEY`, followed by the native Windows store. Linux
-containers do not read that store; do not mount it into a project container.
-Electron removes both key variables before starting renderers. `.env*`, `*.dpapi`
-and `.secrets/` are ignored by Git/build context; tool policy blocks DPAPI files.
+Keys are passed to the backend child only. They are not added to Electron's
+process environment, renderer or project-container environment. The file tools
+already block reads of `.env` files. As with any plaintext secret in a selected
+project, an explicitly approved arbitrary shell command can read mounted files;
+do not approve commands that expose it. Development container mounts can include
+the local file, while normal project execution receives no key environment.
 
-## Endpoint, model and budget
+The previous `%LOCALAPPDATA%/Codix/secrets/avalai-key.dpapi` is no longer read,
+modified or deleted. An empty `.env` does not fall back to that old key.
+The backend still accepts explicit `AVALAI_API_KEY` or `OPENAI_API_KEY` when
+launched directly in an approved backend/development environment.
 
-Default endpoint: `https://api.avalai.ir/v1`. `OPENAI_BASE_URL` can select that exact
-URL or `https://api.openai.com/v1`; other destinations and redirects are blocked.
-Set `CODIX_MODEL` to an OpenAI model identifier available on your AvalAI account
-before launching the desktop app. No model or real key has been selected for you.
-The app uses `/responses` with function calling; choose a model supporting both.
-See [AvalAI API introduction](https://docs.avalai.ir/en/api-reference/introduction).
+The build never copies the repository `.env`. It copies `.env.example` with
+empty key fields and creates the portable `.env` only if absent. Rebuilding
+preserves an existing portable `.env`; do not distribute a filled file.
+The artifact audit rejects a filled `.env` in a distributable folder.
 
-AvalAI's [token-counting documentation](https://docs.avalai.org/en/guides/token-counting)
-currently marks `/responses/input_tokens` as not implemented. The adapter therefore
-supports conservative budgeting for text/function calls on `gpt-`, `o1`, `o3` and
-`o4` model routes: serialized request bytes plus 4,096 input allowance, and 2,048
-reserved output tokens. It reconciles valid response usage and retains the full
-reservation if usage is absent. This may stop earlier than exact counting; other
-model routes are refused. Official OpenAI continues to require its exact count
-endpoint. The task limit remains 25,000 tokens; ambiguous failures are not retried.
+## Endpoint and budget
 
-The native Windows portable build is now available; see `windows-portable.md` for
-its startup/UI/Docker verification. The DPAPI store remains deliberately unavailable
-to Linux GUI fixtures. No real API request or native Windows decryption has been
-performed. Credential tests use fake keys and mocked DPAPI calls; they cannot
-verify account access or native credential interoperability.
+Only `https://api.avalai.ir/v1` and `https://api.openai.com/v1` are accepted;
+redirects remain blocked. Direct HTTPS is scoped to the exact AvalAI origin;
+TLS verification stays enabled and Windows proxy settings are unchanged.
 
-## Verification
+Task budget remains 25,000 total tokens. AvalAI text/function routes beginning
+`gpt-`, `o1`, `o3` or `o4` reserve compact UTF-8 request bytes plus the existing
+4,096-token input allowance and 2,048-token output cap. JSON ASCII escapes and
+whitespace no longer inflate that estimate. It remains an upper estimate, not
+an exact tokenizer. Actual valid provider usage releases unused reservations;
+missing, partial or inconsistent usage keeps them. The UI separates reported
+usage from unreported reservations and explains the next-call requirement.
+Other model routes are refused. The official OpenAI route continues using its
+input-count endpoint. There is no automatic retry after authentication or
+transport failure. See [budget regression results](token-budget-fix.md).
 
-Changed files: `AGENTS.md`, `spec.md`, `.gitignore`, `.dockerignore`,
-`docker/development.Dockerfile`, `backend/credentials.py`, `backend/provider.py`,
-`backend/policy.py`, `desktop/main.cjs`, `tests/test_credentials.py`,
-`tests/test_tasks.py`, `tests/task-smoke.cjs`, `tests/desktop_task_backend.py`,
-`README.md`, and this document. Git metadata and the private Windows directory
-were also created. Docker verification passed: `python3 -m unittest discover -s
-tests -v` (57 tests), `npm run check:desktop`, `npm run test:desktop`,
-`npm run test:approvals`, and `npm run test:task`. The task GUI check confirms both
-key variables reach only the backend and are absent from the renderer environment.
-`git check-ignore` confirms `.env`, `.env.local`, `example.dpapi` and `.secrets/key`
-are excluded. `git ls-remote origin` succeeded with no advertised refs (empty
-remote). `git diff --check` returned success, but the new repository has only
-untracked source files, so it does not provide a tracked-diff whitespace check.
-No UI build or development-image rebuild was needed/run for this configuration
-change; Git was installed in the existing development container and added to its
-Dockerfile for future builds. GUI fixtures emitted environment DBus/GPU warnings
-but all exited successfully.
+See [verification and changed files](env-configuration.md) and
+[manual acceptance](manual-testing.md). A filled key and supported model are
+required for live acceptance. No real key is included in the templates.

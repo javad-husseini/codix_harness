@@ -1,5 +1,6 @@
 // Test-only child launch substitution: production has no fixture-mode configuration.
 const assert = require('node:assert/strict');
+require('../desktop/config.cjs').loadConfig = () => ({}); // Never read a user's .env in GUI fixtures.
 const childProcess = require('node:child_process');
 const originalSpawn = childProcess.spawn;
 childProcess.spawn = (executable, args, options) => {
@@ -20,6 +21,8 @@ app.on('browser-window-created', (_event, win) => {
   win.webContents.once('did-finish-load', async () => {
     try {
       const result = await win.webContents.executeJavaScript(`(async () => {
+        for (let i = 0; i < 100 && !document.body.textContent.includes('Backend: متصل'); i++)
+          await new Promise(resolve => setTimeout(resolve, 100));
         const call = async (method, ...args) => {
           const result = await window.codix[method](...args);
           if (!result.ok) throw new Error(result.error);

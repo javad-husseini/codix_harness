@@ -17,6 +17,7 @@ No unrelated product features are in scope.
 - UI: Next.js + shadcn/ui.
 - Backend: Python + LangGraph, launched by Electron and exposed through a local HTTP API.
 - Model provider: OpenAI-compatible Responses API through the user-approved AvalAI endpoint `https://api.avalai.ir/v1` by default; official OpenAI is an allowlisted alternative. The model is selected through configuration.
+- Provider routing: user-approved direct HTTPS only for the exact AvalAI origin; preserve system proxy behavior for official OpenAI. Keep TLS certificate/hostname verification and redirect blocking enabled; do not change Windows proxy settings.
 - Target OS: Windows.
 - Distribution: portable folder containing the executable and bundled resources; no installer.
 - Prerequisite: Docker Desktop and WSL2 must already be installed. If Docker is unavailable, explain the prerequisite and do not silently fall back to host execution.

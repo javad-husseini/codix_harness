@@ -29,15 +29,14 @@ Expect 57 passing tests and a successful syntax check. The existing
 not a Windows desktop launch or live provider test. The restricted GUI fixture
 commands and their sandbox requirements are recorded in `phase-3.md`.
 
-## Manual desktop acceptance once Windows runtime is available
+## Manual desktop acceptance
 
-The current repository does not contain a runnable Windows portable artifact or
-`runtime/backend/codix-backend.exe`. Native packaging remains pending. Do not
-expect `npm run desktop` on the Windows host to work, and do not run project
-commands outside Docker. The encrypted Windows key is deliberately not mounted
-into Linux test containers.
+The portable folder is generated at `dist/Codix-win32-x64`; launch `Codix.exe`
+from that folder after completing the build in `windows-portable.md`. Keep the
+entire folder together. Do not run project development commands on the host.
+The encrypted Windows key is deliberately not mounted into Linux test containers.
 
-When the portable artifact is built and verified:
+To test the portable artifact:
 
 1. Start Docker Desktop and wait for its Linux engine to be ready.
 2. Save the encrypted key under the same Windows account and configure

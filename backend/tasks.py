@@ -11,7 +11,7 @@ os.environ['LANGSMITH_TRACING'] = 'false'
 from langgraph.graph import StateGraph, START, END
 
 from backend.policy import redact
-from backend.provider import Budget, BudgetExceeded, ResponsesProvider
+from backend.provider import Budget, BudgetExceeded, ResponsesProvider, ProviderError
 from backend.tools import TOOL_SCHEMAS
 
 SYSTEM = '''You operate only the selected Docker project through supplied harness tools.
@@ -41,6 +41,7 @@ class TaskRun:
         self.decision_id = None
         self.approved = False
         self.thread = None
+        self.checkpoint = 'planning'
         self.state = {'phase': 'plan', 'status': 'running', 'request': request, 'plan': [], 'step': 0,
                       'events': [], 'observations': [], 'changed_files': [], 'commands': [], 'calls': 0,
                       'summary': '', 'issues': [], 'acceptance': True}
@@ -79,6 +80,7 @@ class TaskRun:
             return copy.deepcopy(self.public_state)
 
     def _call(self, state, forced=None):
+        self.checkpoint = 'model response'
         if state['calls'] >= 40:
             raise RuntimeError('Task action limit reached; automatic work stopped.')
         state['calls'] += 1
@@ -87,6 +89,7 @@ class TaskRun:
         return self.provider.call(SYSTEM, context, FUNCTIONS if forced else FUNCTIONS + [FINISH], self.budget, forced)
 
     def _queue(self, state, name, args):
+        self.checkpoint = 'tool proposal validation'
         proposal = self.tools.propose(self.project_id, name, args)
         self.operation = {'name': name, 'args': copy.deepcopy(args), 'proposal': proposal}
         state['phase'] = 'apply'
@@ -97,6 +100,7 @@ class TaskRun:
         return state
 
     def _plan(self, state):
+        self.checkpoint = 'initial project file listing'
         self._event(state, 'Planning before any project modification.')
         listing = self.tools.propose(self.project_id, 'list_files', {'path': '.'})
         result = self.tools.execute(self.project_id, listing['ticket'])
@@ -134,6 +138,7 @@ class TaskRun:
         return self._queue(state, name, args)
 
     def _apply(self, state):
+        self.checkpoint = 'approved tool execution'
         op = self.operation
         self._event(state, f"Tool: {op['name']}")
         result = self.tools.execute(self.project_id, op['proposal']['ticket'], self.approved)
@@ -171,9 +176,13 @@ class TaskRun:
         except BudgetExceeded as error:
             self.state['status'] = 'budget_exhausted'
             self.state['issues'].append(str(error))
+        except ProviderError as error:
+            self.state['status'] = 'stopped'
+            self.state['issues'].append(str(error))
+            self.state['issues'].append('No automatic retry was made; reserved tokens may exceed actual billed usage. Current files are preserved.')
         except Exception:
             self.state['status'] = 'stopped'
-            self.state['issues'].append('Task stopped by provider, tool, policy or approval error. No automatic retry was made; current files are preserved.')
+            self.state['issues'].append(f'Task stopped during {self.checkpoint}. A tool, policy, approval or internal error prevented continuation. No automatic retry was made; current files are preserved.')
         self._publish(self.state)
 
     def launch(self):

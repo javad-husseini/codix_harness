@@ -58,10 +58,11 @@ reservation if usage is absent. This may stop earlier than exact counting; other
 model routes are refused. Official OpenAI continues to require its exact count
 endpoint. The task limit remains 25,000 tokens; ambiguous failures are not retried.
 
-Native Windows packaging remains pending, so the DPAPI store is ready for the
-native backend but is deliberately unavailable to Linux GUI fixtures. No real API
-request or native Windows decryption has been performed. Tests use fake credentials
-and mocked DPAPI calls; they cannot verify account access or Windows interoperability.
+The native Windows portable build is now available; see `windows-portable.md` for
+its startup/UI/Docker verification. The DPAPI store remains deliberately unavailable
+to Linux GUI fixtures. No real API request or native Windows decryption has been
+performed. Credential tests use fake keys and mocked DPAPI calls; they cannot
+verify account access or native credential interoperability.
 
 ## Verification
 

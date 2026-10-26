@@ -7,7 +7,6 @@ from pathlib import Path
 import secrets
 import time
 
-from backend import container_files, container_terminal
 from backend.policy import (FILE_LIMIT, OUTPUT_LIMIT, category, command, host_boundary,
                             redact, relative_path)
 
@@ -33,8 +32,9 @@ class ContainerGateway:
     def __init__(self, projects):
         self.projects = projects
         # Trusted application source, not a project Skill or project-supplied script.
-        self.worker = Path(container_files.__file__).read_text(encoding='utf-8')
-        self.bootstrap = Path(container_terminal.__file__).read_text(encoding='utf-8')
+        # Workers target Linux containers; never import their OS-specific code on Windows.
+        self.worker = Path(__file__).with_name('container_files.py').read_text(encoding='utf-8')
+        self.bootstrap = Path(__file__).with_name('container_terminal.py').read_text(encoding='utf-8')
 
     def check(self, project_id):
         if project_id not in self.projects.projects:

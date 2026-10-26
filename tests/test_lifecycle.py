@@ -8,6 +8,9 @@ import sys
 import threading
 import unittest
 
+# Match Electron's supported backend startup deadline; heavy Docker I/O can exceed 5s.
+STARTUP_TIMEOUT = 15
+
 
 class LifecycleTests(unittest.TestCase):
     def test_immediate_restart_after_authenticated_connection(self):
@@ -41,7 +44,7 @@ class LifecycleTests(unittest.TestCase):
             child.stdin.flush()
             ready = queue.Queue()
             threading.Thread(target=lambda: ready.put(child.stdout.readline()), daemon=True).start()
-            self.assertEqual(ready.get(timeout=5).strip(), 'CODIX_READY')
+            self.assertEqual(ready.get(timeout=STARTUP_TIMEOUT).strip(), 'CODIX_READY')
             client = http.client.HTTPConnection('127.0.0.1', port, timeout=3)
             client.request('GET', '/health', headers={'Authorization': f'Bearer {token}'})
             response = client.getresponse()
@@ -65,7 +68,7 @@ class LifecycleTests(unittest.TestCase):
             listener.listen()
             result = subprocess.run([sys.executable, '-m', 'backend.server'],
                                     env={**os.environ, 'CODIX_API_PORT': str(listener.getsockname()[1])},
-                                    input=token + '\n', capture_output=True, text=True, timeout=5)
+                                    input=token + '\n', capture_output=True, text=True, timeout=STARTUP_TIMEOUT)
         self.assertEqual(result.returncode, 1)
         self.assertNotIn('CODIX_READY', result.stdout)
         self.assertNotIn(token, result.stdout + result.stderr)

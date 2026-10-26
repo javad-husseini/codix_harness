@@ -8,7 +8,7 @@ import http.client
 import threading
 from unittest.mock import patch
 
-from backend.provider import Budget, BudgetExceeded, ResponsesProvider
+from backend.provider import Budget, BudgetExceeded, ResponsesProvider, ProviderError
 from backend.tasks import TaskManager
 from backend.tools import ToolService
 from tests.test_tools import LocalGateway
@@ -38,6 +38,17 @@ def wait(run):
 
 
 class GraphTests(unittest.TestCase):
+    def test_provider_diagnostic_survives_graph_without_raw_exception(self):
+        class RejectedProvider:
+            def call(self, *_args, **_kwargs):
+                raise ProviderError('authentication')
+        manager = TaskManager(self.tools, RejectedProvider)
+        manager.start('project', 'Check the task')
+        state = wait(manager.current)
+        self.assertEqual(state['status'], 'stopped')
+        self.assertIn('HTTP 401', state['report']['unresolved'][0])
+        self.assertEqual(state['changed_files'], [])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)

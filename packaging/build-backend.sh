@@ -10,6 +10,7 @@ xvfb-run -a /usr/lib/wine/wine64 'C:\Python312\python.exe' -m PyInstaller \
   --copy-metadata langgraph --copy-metadata langchain-core \
   --add-data 'Z:\workspace\backend\container_files.py;backend' \
   --add-data 'Z:\workspace\backend\container_terminal.py;backend' \
+  --add-data 'Z:\workspace\backend\container_pty.py;backend' \
   'Z:\workspace\packaging\backend-entry.py'
 mkdir -p /workspace/runtime/codix-backend
 cp -a /opt/wine/drive_c/build-dist/codix-backend/. /workspace/runtime/codix-backend/

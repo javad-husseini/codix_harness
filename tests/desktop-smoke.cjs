@@ -27,7 +27,8 @@ app.on('browser-window-created', (_event, win) => {
       }); })()`);
       assert.equal(state.title, 'Codix');
       assert.equal(state.heading, 'Codix');
-      assert.deepEqual(state.methods.sort(), ['health', 'prerequisites', 'prepareProject', 'selectProject', 'smoke', 'setPlan', 'runTool', 'startTask', 'taskStatus'].sort());
+      assert.deepEqual(state.methods.sort(), ['health', 'prerequisites', 'selectProject', 'prepareProject', 'smoke', 'setPlan', 'runTool', 'startTask', 'chatSend', 'taskStatus',
+        'readFile', 'terminalOpen', 'terminalInput', 'terminalPoll', 'terminalResize', 'terminalInterrupt', 'terminalClose'].sort());
       assert.equal(state.nodeAccess, 'undefined');
       assert.equal(state.processAccess, 'undefined');
       assert.equal(state.health.ok, true);

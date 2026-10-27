@@ -1,16 +1,24 @@
 # Codix
 
 The latest Windows artifact is `dist/Codix-MVP-win32-x64/Codix.exe`.
-Native live AvalAI acceptance now passes: a Persian Hello World task created and
-executed `hello.py` in Docker in four model calls and 3,353 reported tokens, with
-zero outstanding reservations and the unchanged 25,000-token task limit. The
-portable UI also passes native startup. See [budget fix and verification](docs/token-budget-fix.md)
-and [local .env setup](docs/git-and-provider.md). The approved direct HTTPS route
-keeps TLS verification enabled and Windows proxy settings unchanged.
+The workspace has readonly file tabs in the center, a project tree on the left,
+real session chat on the right, and agent output/manual Docker PTYs below.
+Panels resize by dragging; side panels collapse and Persian uses bundled offline
+Vazirmatn. Every manual terminal input requires native approval before delivery;
+raw-key applications are not supported. See [workspace panels](docs/workspace-panels.md).
+Conversation mode
+cannot execute tools; explicit execution mode uses the original graph and native
+approvals. Related chat shares the task's 25,000-token budget. Real AvalAI
+acceptance passed for two-turn context, Docker Hello World execution and task
+follow-up, using 6,873 reported tokens combined. The portable UI passes native
+startup. See [workspace changes and results](docs/workspace-redesign.md),
+[budget fix](docs/token-budget-fix.md) and [local .env setup](docs/git-and-provider.md).
+The approved direct HTTPS route keeps TLS verification enabled and Windows proxy
+settings unchanged.
 
 Windows portable coding harness: Electron + Next.js/shadcn UI, Python backend and isolated Docker project execution. `spec.md` is the source of truth for MVP scope.
 
-Phase 4 adds instruction-only project Skills and at most three correction cycles within the shared 25,000-token budget. The current suite has 79 backend tests, two configuration tests and three Docker GUI suites, including failed-check correction, fresh approvals and clear budget reporting. Phase 5 verified native Windows UI, Docker/file-tool, container-reuse, missing-Docker and port-conflict behavior. See [phase 4](docs/phase-4.md), [phase 5 results](docs/phase-5.md), [configuration verification](docs/env-configuration.md), [Windows build](docs/windows-portable.md) and [approved decisions](docs/phase-0.md).
+Phase 4 adds instruction-only project Skills and at most three correction cycles within the shared 25,000-token budget. The suite includes backend/configuration tests and four Docker GUI suites covering chat, file tabs, panel resizing, real PTYs, shared budgets, failed-check correction and native approval waiting. Phase 5 verified native Windows UI, Docker/file-tool, container-reuse, missing-Docker and port-conflict behavior. See [phase 4](docs/phase-4.md), [phase 5 results](docs/phase-5.md), [configuration verification](docs/env-configuration.md), [Windows build](docs/windows-portable.md) and [approved decisions](docs/phase-0.md).
 
 ## Development rules
 

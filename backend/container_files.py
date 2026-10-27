@@ -64,6 +64,26 @@ def perform(request, root='/workspace'):
                     items.append({'name': entry.name, 'directory': entry.is_dir(follow_symlinks=False)})
             return {'entries': sorted(items, key=lambda item: item['name']), 'truncated': False}
         leaf = parts[-1]
+        if op == 'view':
+            source = os.open(leaf, os.O_RDONLY | NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+            try:
+                info = os.fstat(source)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise ValueError('Not a regular unlinked file')
+                if info.st_size > LIMIT:
+                    return {'status': 'too_large', 'size': info.st_size, 'limit': LIMIT}
+                raw = os.read(source, LIMIT + 1)
+                if len(raw) > LIMIT:
+                    return {'status': 'too_large', 'size': len(raw), 'limit': LIMIT}
+                try:
+                    content = raw.decode('utf-8-sig')
+                except UnicodeError:
+                    return {'status': 'binary', 'size': len(raw), 'limit': LIMIT}
+                if '\x00' in content:
+                    return {'status': 'binary', 'size': len(raw), 'limit': LIMIT}
+                return {'status': 'text', 'content': content, 'size': len(raw), 'limit': LIMIT}
+            finally:
+                os.close(source)
         current = snapshot(fd, leaf)
         if op == 'inspect':
             return current

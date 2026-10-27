@@ -1,5 +1,5 @@
 ﻿# Acceptance of the built backend only. All generated code executes in Docker.
-param([string]$BackendExecutable = '', [string]$ConfigurationFile = '')
+param([string]$BackendExecutable = '', [string]$ConfigurationFile = '', [switch]$Chat)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 if (-not $BackendExecutable) { $BackendExecutable = Join-Path $repoRoot 'runtime\codix-backend\codix-backend.exe' }
@@ -57,6 +57,24 @@ try {
     $preview = Invoke-Backend '/projects/preview' @{ root = $projectRoot }
     $project = Invoke-Backend '/projects/prepare' @{ ticket = $preview.ticket; approved = $false }
     $containerName = $project.container
+    $chatTokens = 0
+    if ($Chat) {
+        foreach ($message in @('Remember the session code LILAC-742. Reply briefly without taking actions.', 'What is the session code I gave you? Reply with just the code.')) {
+            $chatRun = Invoke-Backend '/chat/send' @{ project_id = $project.project_id; message = $message }
+            $chatDeadline = [DateTime]::UtcNow.AddSeconds(100)
+            do {
+                Start-Sleep -Milliseconds 250
+                $chatState = Invoke-Backend '/tasks/status' @{ task_id = $chatRun.task_id }
+            } until ($chatState.status -notin @('running', 'awaiting_approval') -or [DateTime]::UtcNow -ge $chatDeadline)
+            if ($chatState.chat_status -ne 'completed' -or $chatState.commands.Count -ne 0 -or $chatState.changed_files.Count -ne 0 -or $chatState.approval) {
+                throw 'Native chat did not complete without tool execution'
+            }
+        }
+        if ($chatState.messages.Count -ne 4 -or $chatState.messages[-1].content -notmatch 'LILAC-742') { throw 'Native chat did not preserve two-turn context' }
+        $chatTokens = $chatState.tokens_used
+        'PASS real two-turn AvalAI chat: remembered session code, no file/command/approval actions.'
+        'Pre-task chat tokens: ' + $chatTokens
+    }
     $task = Invoke-Backend '/tasks/start' @{ project_id = $project.project_id; request = 'یک فایل hello.py بساز که فقط Hello, World! چاپ کند. یک گام برای ساخت و اجرای python3 -B hello.py و تایید خروجی کافی است. هیچ وابستگی نصب نکن، فایلی حذف نکن و فایل دیگری نساز.' }
     $deadline = [DateTime]::UtcNow.AddSeconds(180)
     $approvedCommands = 0
@@ -95,6 +113,19 @@ try {
     if ($state.tokens_used -gt 25000 -or $state.correction_cycles -ne 0 -or $approvedCommands -ne 1) { throw 'Unexpected live task limits or approvals' }
     if ($state.commands.Count -ne 1 -or $state.commands[0].exit_code -ne 0 -or $state.commands[0].stdout.Trim() -ne 'Hello, World!') { throw 'Actual Python output did not match Hello World' }
     if ($state.changed_files.Count -ne 1 -or $state.changed_files[0] -ne 'hello.py') { throw 'Unexpected changed files' }
+    if ($Chat) {
+        if ($state.tokens_used -le $chatTokens -or $state.model_calls -lt 6 -or $state.messages.Count -lt 6) { throw 'Execution did not include pre-task chat in its shared budget/context' }
+        $beforeFollowup = $state.tokens_used
+        $followup = Invoke-Backend '/chat/send' @{ project_id = $project.project_id; message = 'What exact text did the executed Python command print? Reply briefly using the recorded result. Do not run anything.' }
+        do {
+            Start-Sleep -Milliseconds 250
+            $state = Invoke-Backend '/tasks/status' @{ task_id = $followup.task_id }
+        } until ($state.status -notin @('running', 'awaiting_approval') -or [DateTime]::UtcNow -ge $deadline)
+        if ($followup.task_id -ne $task.task_id -or $state.chat_status -ne 'completed' -or $state.commands.Count -ne 1 -or
+            $state.tokens_used -le $beforeFollowup -or $state.tokens_used -gt 25000 -or $state.messages[-1].content -notmatch 'Hello, World!') { throw 'Related chat did not reuse the task result and budget' }
+        'PASS related chat: same task ID, shared budget, actual result context, no extra command.'
+        'Final reported tokens including chat: ' + $state.tokens_reported
+    }
     'PASS live native backend: AvalAI planning, actual Docker file creation, exact guarded command approval and Hello, World! output within 25000 tokens.'
 } finally {
     if ($process.Id -and -not $process.HasExited) {

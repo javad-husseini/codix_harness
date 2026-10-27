@@ -22,6 +22,7 @@ let project;
 let busy = false;
 let quitting = false;
 let taskId;
+let approvalPrompt;
 
 async function request(endpoint, body) {
   const response = await fetch(`http://127.0.0.1:${rawPort}${endpoint}`, {
@@ -78,14 +79,14 @@ function trusted(event) {
   }
 }
 
-function handle(name, fn, argumentCount = 0) {
+function handle(name, fn, argumentCount = 0, concurrent = false) {
   ipcMain.handle(`codix:${name}`, async (event, ...args) => {
     trusted(event);
-    if (args.length !== argumentCount || busy) return { ok: false, error: 'Invalid request or another operation is in progress.' };
-    busy = true;
+    if (args.length !== argumentCount || (!concurrent && busy)) return { ok: false, error: 'Invalid request or another operation is in progress.' };
+    if (!concurrent) busy = true;
     try { return { ok: true, data: await fn(...args) }; }
     catch (error) { return { ok: false, error: error.message }; }
-    finally { busy = false; }
+    finally { if (!concurrent) busy = false; }
   });
 }
 
@@ -110,8 +111,10 @@ function registerBridge() {
   handle('select-project', async () => {
     const chosen = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
     if (chosen.canceled) return null;
-    selection = null; project = null;
-    selection = await request('/projects/preview', { root: chosen.filePaths[0] });
+    const nextSelection = await request('/projects/preview', { root: chosen.filePaths[0] });
+    if (project) await request('/terminals/close-project', { project_id: project.project_id });
+    selection = null; project = null; taskId = null;
+    selection = nextSelection;
     return { root: selection.root, dockerfile: selection.dockerfile };
   });
   handle('prepare-project', async () => {
@@ -150,21 +153,61 @@ function registerBridge() {
     taskId = result.task_id;
     return result;
   }, 1);
+  handle('chat-send', async text => {
+    if (!project || typeof text !== 'string' || !text.trim() || text.length > 4000) throw new Error('Prepare a project and enter a message.');
+    const result = await request('/chat/send', { project_id: project.project_id, message: text });
+    taskId = result.task_id;
+    return result;
+  }, 1);
   handle('task-status', async () => {
     if (!taskId) throw new Error('No task has started.');
     const result = await request('/tasks/status', { task_id: taskId });
     if (result.approval) {
       const { decision_id, reason, detail } = result.approval;
-      const choice = await dialog.showMessageBox(window, {
-        type: 'warning', title: 'Approve task operation', buttons: ['Approve once', 'Reject'],
-        defaultId: 1, cancelId: 1, message: reason, detail,
-      });
-      await request('/tasks/decide', { task_id: taskId, decision_id, approved: choice.response === 0 });
+      if (!approvalPrompt) {
+        const targetId = taskId;
+        // Return the real waiting state so the UI can render it behind the native dialog.
+        // Decision IDs and approval authority stay in this process.
+        approvalPrompt = dialog.showMessageBox(window, {
+          type: 'warning', title: 'Approve task operation', buttons: ['Approve once', 'Reject'],
+          defaultId: 1, cancelId: 1, message: reason, detail,
+        }).then(choice => request('/tasks/decide', { task_id: targetId, decision_id, approved: choice.response === 0 }))
+          .catch(() => dialog.showErrorBox('Approval could not be recorded', 'Check the backend connection. No approval is inferred from chat.'))
+          .finally(() => { approvalPrompt = null; });
+      }
       delete result.approval;
-      result.status = 'running';
     }
     return result;
-  });
+  }, 0, true);
+  const selected = () => {
+    if (!project) throw new Error('Prepare the project container first.');
+    return project.project_id;
+  };
+  handle('read-file', path => {
+    if (typeof path !== 'string' || path.length > 1024) throw new Error('Invalid file path.');
+    return request('/files/view', { project_id: selected(), path });
+  }, 1, true);
+  async function terminalOperation(action, sessionId = '', text = '') {
+    if (typeof sessionId !== 'string' || sessionId.length > 64 || typeof text !== 'string' || text.length > 4096) throw new Error('Invalid terminal input.');
+    const projectId = selected();
+    const proposal = await request('/terminals/propose', { project_id: projectId, action, session_id: sessionId, text });
+    const decision = await dialog.showMessageBox(window, {
+      type: 'warning', title: 'Approve manual terminal operation', buttons: ['Approve once', 'Reject'],
+      defaultId: 1, cancelId: 1, message: action === 'open' ? 'Open a shell inside the project container?' : 'Send this input to the container terminal?',
+      detail: proposal.detail,
+    });
+    return request('/terminals/execute', { project_id: projectId, ticket: proposal.ticket, approved: decision.response === 0 });
+  }
+  handle('terminal-open', () => terminalOperation('open'));
+  handle('terminal-input', (id, text) => terminalOperation('input', id, text), 2);
+  const terminalControl = (action, id, extra = {}) => {
+    if (typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id)) throw new Error('Invalid terminal session.');
+    return request(`/terminals/${action}`, { project_id: selected(), session_id: id, ...extra });
+  };
+  handle('terminal-poll', (id, cursor) => terminalControl('poll', id, { cursor }), 2, true);
+  handle('terminal-resize', (id, cols, rows) => terminalControl('resize', id, { cols, rows }), 3, true);
+  handle('terminal-interrupt', id => terminalControl('interrupt', id), 1, true);
+  handle('terminal-close', id => terminalControl('close', id), 1, true);
 }
 
 async function main() {
@@ -193,7 +236,7 @@ async function main() {
   } }));
   await startBackend();
   registerBridge();
-  window = new BrowserWindow({ width: 1040, height: 740, title: 'Codix', webPreferences: {
+  window = new BrowserWindow({ width: 1440, height: 920, minWidth: 860, minHeight: 640, title: 'Codix', webPreferences: {
     preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
   } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -210,7 +253,7 @@ app.on('before-quit', event => {
     quitting = true;
     const child = backend;
     child.stdin.end();
-    const timer = setTimeout(() => child.kill(), 3000);
+    const timer = setTimeout(() => child.kill(), 30000); // Up to four PTY supervisors confirm their own cleanup.
     child.once('exit', () => { clearTimeout(timer); app.quit(); });
   } else quitting = true;
 });

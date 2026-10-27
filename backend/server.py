@@ -31,7 +31,7 @@ class Server(ThreadingHTTPServer):
         super().server_bind()
 
 
-def make_server(token, port, manager=None, tool_service=None, task_manager=None):
+def make_server(token, port, manager=None, tool_service=None, task_manager=None, terminal_service=None):
     if not isinstance(token, str) or len(token) < 32:
         raise ValueError("A per-launch authentication token is required.")
     projects = manager or ProjectManager()
@@ -39,7 +39,12 @@ def make_server(token, port, manager=None, tool_service=None, task_manager=None)
     # Lazy construction keeps health/project setup usable before model configuration exists.
     from backend.tasks import TaskManager
     tasks = task_manager or TaskManager(tools)
+    from backend.file_viewer import FileViewer
+    from backend.terminals import TerminalService
+    viewer = FileViewer(tools.gateway)
+    terminals = terminal_service or TerminalService(tools.gateway)
     operation_lock = threading.Lock()
+    closing = threading.Event()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "Codix"
@@ -93,12 +98,32 @@ def make_server(token, port, manager=None, tool_service=None, task_manager=None)
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
                     raise ValueError("Expected an object.")
+                if closing.is_set():
+                    raise PermissionError('Workspace is shutting down.')
+                # Independent viewer/PTY control must not race with the agent's operation
+                # lock or reject an approved input merely because an output poll arrived.
+                # Session output/write buffers have their own locks; no approval state
+                # can be changed by these routes.
+                if self.path == '/files/view' and set(body) == {'project_id', 'path'} and all(isinstance(v, str) for v in body.values()):
+                    self.reply(200, viewer.read(body['project_id'], body['path']))
+                    return
+                if self.path in ('/terminals/poll', '/terminals/resize', '/terminals/interrupt', '/terminals/close'):
+                    action = self.path.rsplit('/', 1)[1]
+                    extra = {'cursor'} if action == 'poll' else {'cols', 'rows'} if action == 'resize' else set()
+                    if set(body) != {'project_id', 'session_id'} | extra or not isinstance(body['project_id'], str) or not isinstance(body['session_id'], str):
+                        raise ValueError('Invalid terminal control fields.')
+                    self.reply(200, terminals.control(body['project_id'], body['session_id'], action, **{k: body[k] for k in extra}))
+                    return
                 if not operation_lock.acquire(blocking=False):
                     self.reply(409, {"error": "Another project operation is in progress."})
                     return
                 try:
+                    if closing.is_set():
+                        raise PermissionError('Workspace is shutting down.')
                     if self.path == '/tasks/start' and set(body) == {'project_id', 'request'} and isinstance(body['project_id'], str):
                         result = tasks.start(body['project_id'], body['request'])
+                    elif self.path == '/chat/send' and set(body) == {'project_id', 'message'} and isinstance(body['project_id'], str):
+                        result = tasks.send_chat(body['project_id'], body['message'])
                     elif self.path == '/tasks/status' and set(body) == {'task_id'} and isinstance(body['task_id'], str):
                         result = tasks.get(body['task_id']).snapshot()
                     elif (self.path == '/tasks/decide' and set(body) == {'task_id', 'decision_id', 'approved'}
@@ -106,10 +131,18 @@ def make_server(token, port, manager=None, tool_service=None, task_manager=None)
                         task = tasks.get(body['task_id'])
                         task.decide(body['decision_id'], body['approved'])
                         result = {'accepted': True}
+                    elif self.path == '/terminals/close-project' and set(body) == {'project_id'} and isinstance(body['project_id'], str):
+                        result = terminals.close_project(body['project_id'])
                     elif tasks.active():
                         raise PermissionError('Project/manual tools are locked while a task is active or awaiting approval.')
                     elif self.path == "/prerequisites" and not body:
                         result = projects.prerequisites()
+                    elif (self.path == '/terminals/propose' and set(body) == {'project_id', 'action', 'session_id', 'text'}
+                          and all(isinstance(v, str) for v in body.values())):
+                        result = terminals.propose(**body)
+                    elif (self.path == '/terminals/execute' and set(body) == {'project_id', 'ticket', 'approved'}
+                          and isinstance(body['project_id'], str) and isinstance(body['ticket'], str) and type(body['approved']) is bool):
+                        result = terminals.execute(**body)
                     elif self.path == "/projects/preview" and set(body) == {"root"} and isinstance(body["root"], str):
                         result = projects.preview(body["root"])
                     elif self.path == "/projects/prepare" and set(body) == {"ticket", "approved"} and isinstance(body["ticket"], str) and isinstance(body["approved"], bool):
@@ -137,7 +170,16 @@ def make_server(token, port, manager=None, tool_service=None, task_manager=None)
             except Exception:
                 self.reply(500, {"error": "Operation failed. No host fallback was used."})
 
-    return Server(("127.0.0.1", port), Handler)
+    class WorkspaceServer(Server):
+        def server_close(self):
+            closing.set()
+            try:
+                with operation_lock:
+                    terminals.close_all()
+            finally:
+                super().server_close()
+
+    return WorkspaceServer(("127.0.0.1", port), Handler)
 
 
 def main():

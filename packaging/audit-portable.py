@@ -22,11 +22,14 @@ assert {item.name for item in app.iterdir()} == {'desktop', 'out', 'package.json
 assert json.loads((app / 'package.json').read_text())['main'] == 'desktop/main.cjs'
 for relative in ['desktop/main.cjs', 'desktop/preload.cjs', 'desktop/config.cjs', 'out/index.html']:
     assert (app / relative).is_file()
-for name in ['main.cjs', 'config.cjs']:
+for name in ['main.cjs', 'preload.cjs', 'config.cjs']:
     assert (app / 'desktop' / name).read_bytes() == (repo / 'desktop' / name).read_bytes(), 'Stale desktop configuration code'
-for worker in ['container_files.py', 'container_terminal.py']:
+assert (app / 'out' / 'index.html').read_bytes() == (repo / 'out' / 'index.html').read_bytes(), 'Stale workspace UI'
+for worker in ['container_files.py', 'container_terminal.py', 'container_pty.py']:
     assert (backend / '_internal' / 'backend' / worker).read_bytes() == (repo / 'backend' / worker).read_bytes()
 assert (backend / '_internal' / 'python312.dll').is_file()
+for relative in ['fonts/Vazirmatn.woff2', 'fonts/OFL.txt']:
+    assert (app / 'out' / relative).read_bytes() == (repo / 'public' / relative).read_bytes(), 'Missing/stale bundled font'
 assert (product / 'docker' / 'default.Dockerfile').is_file()
 for item in product.rglob('*'):
     name = item.name.lower()
